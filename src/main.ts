@@ -1,3 +1,4 @@
+import type { Express } from 'express';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
@@ -11,7 +12,10 @@ async function bootstrap() {
 
   app.useLogger(app.get(Logger));
   app.use(helmet());
-  app.getHttpAdapter().getInstance().disable('x-powered-by');
+  // Nest's HttpAdapter#getInstance() is typed `any` across platforms; this cast is safe under the Express adapter we use.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  const expressInstance: Express = app.getHttpAdapter().getInstance();
+  expressInstance.disable('x-powered-by');
 
   app.enableCors({
     origin: configService.get<string[]>('app.corsOrigins'),
@@ -29,4 +33,4 @@ async function bootstrap() {
   const port = configService.get<number>('app.port') ?? 3000;
   await app.listen(port, '0.0.0.0');
 }
-bootstrap();
+void bootstrap();

@@ -6,7 +6,10 @@ import type { TransportSingleOptions } from 'pino';
 function resolvePrettyTransport(): TransportSingleOptions | undefined {
   try {
     require.resolve('pino-pretty');
-    return { target: 'pino-pretty', options: { singleLine: true, colorize: true } };
+    return {
+      target: 'pino-pretty',
+      options: { singleLine: true, colorize: true },
+    };
   } catch {
     return undefined;
   }

@@ -3,6 +3,9 @@
 /node_modules
 /build
 *.tsbuildinfo
+prisma/*.js
+prisma/*.d.ts
+prisma/*.js.map
 
 # Logs
 logs

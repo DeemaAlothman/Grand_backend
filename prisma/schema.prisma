@@ -1,12 +1,198 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+// ---------- Identity & RBAC ----------
+
+model Role {
+  id          String           @id @default(uuid())
+  key         String           @unique
+  name        String
+  description String?
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  key         String           @unique
+  description String?
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now())
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  phone        String?    @unique
+  passwordHash String
+  firstName    String?
+  lastName     String?
+  status       UserStatus @default(PENDING_VERIFICATION)
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  mfaEnabled   Boolean    @default(false)
+  mfaSecret    String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String
+  deviceName        String?
+  ipAddress         String?
+  userAgent         String?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?   @unique
+  createdAt         DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ---------- Catalog: categories & dynamic attributes ----------
+
+model Category {
+  id             String     @id @default(uuid())
+  parentId       String?
+  parent         Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children       Category[] @relation("CategoryTree")
+  name           String
+  slug           String     @unique
+  path           String
+  sortOrder      Int        @default(0)
+  imageUrl       String?
+  seoTitle       String?
+  seoDescription String?
+  isActive       Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  categoryAttributes CategoryAttribute[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Attribute {
+  id           String        @id @default(uuid())
+  key          String        @unique
+  name         String
+  type         AttributeType
+  unit         String?
+  isFilterable Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  options            AttributeOption[]
+  categoryAttributes CategoryAttribute[]
+
+  @@map("attributes")
+}
+
+model AttributeOption {
+  id          String    @id @default(uuid())
+  attributeId String
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  value       String
+  label       String
+  sortOrder   Int       @default(0)
+
+  @@unique([attributeId, value])
+  @@map("attribute_options")
+}
+
+model CategoryAttribute {
+  id             String    @id @default(uuid())
+  categoryId     String
+  category       Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  attributeId    String
+  attribute      Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  isRequired     Boolean   @default(false)
+  isFilterable   Boolean   @default(true)
+  createsVariant Boolean   @default(false)
+  sortOrder      Int       @default(0)
+
+  @@unique([categoryId, attributeId])
+  @@map("category_attributes")
+}
+
+// ---------- Audit ----------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  reason     String?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+  @@map("audit_logs")
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum AttributeType {
+  TEXT
+  SELECT
+  COLOR_SELECT
+  DECIMAL_UNIT
+  INTEGER_UNIT
+  BOOLEAN
 }
