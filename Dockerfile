@@ -26,6 +26,7 @@ RUN npx prisma generate && npm run build
 FROM deps AS development
 ENV NODE_ENV=development
 COPY . .
+RUN chown -R node:node /app
 USER node
 EXPOSE 3000
 ENTRYPOINT ["dumb-init", "--"]

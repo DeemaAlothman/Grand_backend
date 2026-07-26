@@ -87,12 +87,20 @@ export class AttributesService {
 
   async remove(id: string, actorId: string) {
     const before = await this.findOne(id);
-    const linkedCategoriesCount = await this.prisma.categoryAttribute.count({
-      where: { attributeId: id },
-    });
+    const [linkedCategoriesCount, productValuesCount, variantValuesCount] =
+      await Promise.all([
+        this.prisma.categoryAttribute.count({ where: { attributeId: id } }),
+        this.prisma.productAttributeValue.count({ where: { attributeId: id } }),
+        this.prisma.variantAttributeValue.count({ where: { attributeId: id } }),
+      ]);
     if (linkedCategoriesCount > 0) {
       throw new ConflictException(
         'cannot delete an attribute linked to categories; unlink it first or disable it instead',
+      );
+    }
+    if (productValuesCount > 0 || variantValuesCount > 0) {
+      throw new ConflictException(
+        'cannot delete an attribute used by existing products or variants',
       );
     }
     await this.prisma.attribute.delete({ where: { id } });
@@ -228,5 +236,13 @@ export class AttributesService {
       include: { attribute: { include: { options: true } } },
       orderBy: { sortOrder: 'asc' },
     });
+  }
+
+  async getCategoryAttributeRules(categoryId: string) {
+    const links = await this.findByCategory(categoryId);
+    return {
+      variantAttributes: links.filter((link) => link.createsVariant),
+      infoAttributes: links.filter((link) => !link.createsVariant),
+    };
   }
 }

@@ -22,6 +22,9 @@ import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { AttributesModule } from './modules/attributes/attributes.module';
+import { BrandsModule } from './modules/brands/brands.module';
+import { ProductsModule } from './modules/products/products.module';
+import { PricingModule } from './modules/pricing/pricing.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -60,6 +63,9 @@ import { AppService } from './app.service';
     AuthModule,
     CategoriesModule,
     AttributesModule,
+    BrandsModule,
+    ProductsModule,
+    PricingModule,
   ],
   controllers: [AppController],
   providers: [

@@ -39,6 +39,19 @@ async function seedRoles() {
   }
 }
 
+async function seedPriceLists() {
+  await prisma.priceList.upsert({
+    where: { key: 'retail' },
+    update: {},
+    create: { key: 'retail', name: 'Retail', type: 'RETAIL' },
+  });
+  await prisma.priceList.upsert({
+    where: { key: 'wholesale' },
+    update: {},
+    create: { key: 'wholesale', name: 'Wholesale', type: 'WHOLESALE' },
+  });
+}
+
 async function seedDevSuperAdmin() {
   if (process.env.NODE_ENV === 'production') {
     return;
@@ -69,6 +82,7 @@ async function seedDevSuperAdmin() {
 async function main() {
   await seedPermissions();
   await seedRoles();
+  await seedPriceLists();
   await seedDevSuperAdmin();
 }
 

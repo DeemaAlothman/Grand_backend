@@ -147,6 +147,107 @@ Response `204`. `409` إذا كان للصنف صنف فرعي (لازم تحذ�
 
 ---
 
+## Brands (`/brands`)
+
+### `GET /brands` — Public
+### `GET /brands/:id` — Public
+
+### `POST /brands` — يتطلب صلاحية `products.create`
+```json
+{ "name": "Roland", "slug": "optional", "isActive": true }
+```
+
+### `PATCH /brands/:id` — يتطلب صلاحية `products.update`
+### `DELETE /brands/:id` — يتطلب صلاحية `products.delete`
+`409` إذا كانت العلامة التجارية مرتبطة بمنتجات.
+
+---
+
+## Products (`/products`)
+
+النموذج: كل منتج (بسيط أو متغير) له دائمًا متغير واحد على الأقل (`ProductVariant`) يحمل SKU والسعر والمخزون. المنتج البسيط = منتج بمتغير واحد ضمني تلقائيًا.
+
+### `GET /products` — Public (قائمة/بحث/فلترة، للمتجر — تُرجع `PUBLISHED` فقط)
+Query params (كلها اختيارية):
+- `q`: بحث نصي بالاسم (يدعم العربية، مفهرس بـ pg_trgm).
+- `categoryId`, `brandId`: uuid.
+- `minPrice`, `maxPrice`: أعداد صحيحة، يُقارَنوا بسعر التجزئة (`retail`).
+- `attr_<key>=value`: فلترة بصفة، مثلاً `?attr_color=red` — يمكن تكرارها لعدة صفات (AND بين الصفات المختلفة).
+- `cursor`: uuid آخر عنصر بالصفحة السابقة (cursor-based pagination).
+- `limit`: 1-100، افتراضي 20.
+
+Response `200`:
+```json
+{ "items": [ { "...": "...", "displayPrice": { "min": 20, "max": 25 } } ], "nextCursor": "uuid|null" }
+```
+- `displayPrice`: محسوب من أسعار التجزئة لكل متغيرات المنتج وقت الطلب (`null` إذا ما في أسعار بعد). للمنتج البسيط `min === max`.
+
+### `GET /products/slug/:slug` — Public
+تفاصيل منتج واحد للمتجر (يرجع 404 إذا مو `PUBLISHED`)، يشمل كل المتغيرات وصفاتها وأسعارها.
+
+### `GET /products/:id` — يتطلب صلاحية `products.read`
+تفاصيل منتج بأي حالة (`DRAFT`/`PUBLISHED`/`ARCHIVED`) — للوحة الإدارة.
+
+### `POST /products` — يتطلب صلاحية `products.create`
+```json
+{
+  "categoryId": "uuid",
+  "brandId": "uuid (اختياري)",
+  "name": "A4 Transfer Paper 100 Sheets",
+  "slug": "اختياري",
+  "description": "اختياري",
+  "type": "SIMPLE | VARIABLE",
+  "sellingUnit": "PIECE | METER | ROLL | KILOGRAM | PACKAGE | PARCEL | SHEET",
+  "minOrderQuantity": 1,
+  "attributeValues": [{ "attributeId": "uuid", "value": "..." }],
+  "sku": "مطلوب فقط لو type=SIMPLE",
+  "barcode": "اختياري (SIMPLE فقط)",
+  "weight": 0
+}
+```
+- `attributeValues`: فقط للصفات **المعلوماتية** بالصنف (غير المُنشئة لمتغير)؛ الإلزامية منها لازم تنرسل، وإلا 400.
+- إذا الصنف عنده صفات "منشئة لمتغير" (`createsVariant: true`) ولازم `type: VARIABLE` — إرسال `SIMPLE` برجع 400.
+- `sellingUnit: PIECE` يفرض `minOrderQuantity` عدد صحيح (لا كسور).
+- Errors: `404` صنف/علامة غير موجودة، `409` slug أو SKU مكرر.
+
+### `PATCH /products/:id` — يتطلب صلاحية `products.update`
+تحديث `name`, `slug`, `description`, `brandId`, `sellingUnit`, `minOrderQuantity`, `status` (`DRAFT|PUBLISHED|ARCHIVED`), `attributeValues` (تستبدل القيم المعلوماتية بالكامل). لا يمكن تغيير `categoryId` أو `type` بعد الإنشاء.
+
+### `DELETE /products/:id` — يتطلب صلاحية `products.delete`
+`409` إذا المنتج `PUBLISHED` — أرشفه (`status: ARCHIVED`) أولًا.
+
+### Variants (متداخلة تحت المنتج)
+
+- **`GET /products/:id/variants`** — يتطلب `products.read`.
+- **`GET /products/:id/variants/:variantId`** — يتطلب `products.read`.
+- **`POST /products/:id/variants`** — يتطلب `products.update`. للمنتجات `VARIABLE` فقط.
+  ```json
+  { "sku": "ECO-1L-RED", "barcode": "اختياري", "weight": 0, "attributeValues": [{ "attributeId": "uuid", "value": "red" }] }
+  ```
+  `attributeValues` يجب أن تغطي **بالضبط** كل الصفات "المنشئة لمتغير" بالصنف (لا نقص ولا زيادة)، وكل قيمة تُتحقق مقابل نوع الصفة (خيار من قائمة، رقم، إلخ). Errors: `400` قيمة غير صالحة أو صفة ناقصة، `409` SKU مكرر أو نفس تركيبة الصفات موجودة مسبقًا.
+- **`PATCH /products/:id/variants/:variantId/status`** — يتطلب `products.update`. Body: `{ "status": "ACTIVE" | "DISABLED" }`.
+- **`DELETE /products/:id/variants/:variantId`** — يتطلب `products.delete`. `409` إذا كان آخر متغير متبقي بالمنتج.
+
+---
+
+## Pricing
+
+قوائم الأسعار المزروعة افتراضيًا: `retail` (تجزئة), `wholesale` (جملة).
+
+### `POST /variants/:variantId/prices` — يتطلب صلاحية `prices.update`
+```json
+{ "priceListKey": "retail", "amount": 12.5 }
+```
+Upsert — ينشئ السعر أو يحدّثه إذا موجود لنفس المتغير/القائمة.
+
+### `POST /prices/bulk` — يتطلب صلاحية `prices.update`
+```json
+{ "updates": [{ "variantId": "uuid", "priceListKey": "wholesale", "amount": 16 }, { "...": "..." }] }
+```
+Response: `{ "updated": 2 }`. كل التحديثات بـ transaction واحدة.
+
+---
+
 ## Health (`/health`) — Public, للمراقبة فقط
 - `GET /health/live` → `{ "status": "ok" }`
 - `GET /health/ready` → حالة الاتصال بقاعدة البيانات وRedis.
@@ -160,3 +261,7 @@ Response `204`. `409` إذا كان للصنف صنف فرعي (لازم تحذ�
 3. **حسابات تجريبية محليًا (seed):** `admin@printing-store.local` / `ChangeMe123!` (دور `super_admin`) — موجود بالتطوير فقط، غير موجود بالإنتاج.
 4. **التحقق من البريد/الهاتف عند التسجيل غير مُفعّل بعد** (المستخدم يصير `ACTIVE` مباشرة) — سيُضاف لاحقًا مع وحدة الإشعارات.
 5. **الصلاحيات (`permissions`)** ترجع مع `/auth/me` وداخل الـ access token نفسه — استخدمها لإخفاء/إظهار عناصر الواجهة، لكن لا تعتمد عليها للحماية (التحقق الحقيقي دائمًا بالسيرفر).
+6. **رفع الصور غير جاهز بعد** (وحدة `media`) — لا يوجد حاليًا حقل صورة فعلي بالمنتجات؛ سيُضاف قريبًا مع presigned upload لـ MinIO.
+7. **الاستيراد من ملفات Excel/CSV غير جاهز بعد** (وحدة `imports`).
+8. **صفحة فلترة منتج حسب صنف:** استخدم `GET /category-attributes?categoryId=X` لمعرفة أي صفات تُعرض كفلاتر (`isFilterable: true`) وأيها تُستخدم لبناء فورم إضافة منتج/متغير (`createsVariant: true` = تدخل بفورم المتغير، غير ذلك = تدخل بفورم بيانات المنتج).
+9. **صفة `COLOR_SELECT`/`SELECT`:** القيم المسموحة تجيك من `attribute.options[].value` — أرسل الـ `value` بالضبط (case-sensitive) مو الـ `label`.
