@@ -60,6 +60,7 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
+  importBatches       ImportBatch[]
 
   @@map("users")
 }
@@ -290,6 +291,42 @@ model Media {
   @@map("media")
 }
 
+// ---------- Import staging ----------
+
+model ImportBatch {
+  id             String            @id @default(uuid())
+  sourceFilename String
+  sourceFileKey  String
+  uploadedById   String
+  uploadedBy     User              @relation(fields: [uploadedById], references: [id])
+  status         ImportBatchStatus @default(PENDING)
+  totalRows      Int
+  validRows      Int
+  errorRows      Int
+  createdAt      DateTime          @default(now())
+  committedAt    DateTime?
+
+  rows ImportRow[]
+
+  @@map("import_batches")
+}
+
+model ImportRow {
+  id                String          @id @default(uuid())
+  batchId           String
+  batch             ImportBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber         Int
+  rawData           Json
+  status            ImportRowStatus @default(ERROR)
+  errors            Json?
+  resolvedProductId String?
+  resolvedVariantId String?
+  createdAt         DateTime        @default(now())
+
+  @@index([batchId])
+  @@map("import_rows")
+}
+
 enum ProductType {
   SIMPLE
   VARIABLE
@@ -319,6 +356,20 @@ enum SellingUnit {
 enum PriceListType {
   RETAIL
   WHOLESALE
+}
+
+enum ImportBatchStatus {
+  PENDING
+  PREVIEWED
+  COMMITTED
+  FAILED
+}
+
+enum ImportRowStatus {
+  VALID
+  ERROR
+  COMMITTED
+  SKIPPED
 }
 
 // ---------- Audit ----------

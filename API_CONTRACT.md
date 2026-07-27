@@ -248,6 +248,71 @@ Response: `{ "updated": 2 }`. كل التحديثات بـ transaction واحد�
 
 ---
 
+## Media (`/media`) — رفع الصور (منتجات، متغيرات، أصناف، علامات تجارية)
+
+آلية الرفع من نوع presigned URL: السيرفر يوقّع رابط، الفرونت يرفع الملف مباشرة لـ MinIO/S3 (بدون ما يمر بالسيرفر)، وبعدين يخبر السيرفر إن الرفع خلص.
+
+### `GET /media?entityType=product&entityId=uuid` — Public
+يرجع كل الصور المرتبطة بكيان معيّن، مرتبة حسب `sortOrder`. `entityType` يجب أن يكون واحد من: `product`, `product_variant`, `category`, `brand`.
+
+### `POST /media/presign` — يتطلب صلاحية `media.manage`
+```json
+{ "entityType": "product", "entityId": "uuid", "filename": "photo.png", "mimeType": "image/png", "size": 45210 }
+```
+- الأنواع المسموحة: `image/jpeg` (jpg/jpeg), `image/png` (png), `image/webp` (webp), `image/gif` (gif). الامتداد بالـ filename يجب يطابق الـ mimeType.
+- الحجم الأقصى: 5MB (5242880 بايت).
+- `entityId` يجب أن يشير لكيان موجود فعليًا (404 إذا لأ).
+
+Response `201`:
+```json
+{ "uploadUrl": "http://localhost:9000/printing-store-media/product/uuid/random-uuid.png?X-Amz-...", "key": "product/uuid/random-uuid.png", "expiresInSeconds": 300 }
+```
+**الخطوة التالية على الفرونت:** ارفع الملف مباشرة بـ `PUT` إلى `uploadUrl` (بدون أي header إضافي مطلوب غير الملف نفسه)، خلال 5 دقائق قبل ما ينتهي الرابط.
+
+### `POST /media/confirm` — يتطلب صلاحية `media.manage`
+```json
+{ "key": "product/uuid/random-uuid.png", "entityType": "product", "entityId": "uuid", "sortOrder": 0 }
+```
+يتحقق فعليًا إن الملف موجود بالتخزين (لا يثق بكلام الفرونت فقط)، وينشئ سجل `Media` ويرجعه مع `url` جاهز للعرض المباشر (`<img src>`).
+
+### `DELETE /media/:id` — يتطلب صلاحية `media.manage`
+Response `204`. يحذف الملف من التخزين والسجل من قاعدة البيانات معًا.
+
+---
+
+## Imports (`/imports`) — استيراد منتجات من ملف CSV (لوحة الإدارة فقط)
+
+نظام staging: كل استيراد يمر بمرحلتين — رفع مع معاينة فورية للأخطاء (`upload`)، ثم اعتماد صريح منفصل (`commit`). الصفوف الخاطئة **لا توقف** استيراد الصفوف الصحيحة — تُستثنى فقط.
+
+**خريطة أعمدة CSV ثابتة** (v1 — لا يوجد بعد UI لخريطة أعمدة مخصصة، هاي هي الأعمدة المتوقعة بالضبط):
+
+| العمود | إلزامي | الوصف |
+|---|---|---|
+| `sku` | نعم | رمز فريد على مستوى النظام كامل |
+| `productName` | نعم | اسم المنتج — الصفوف بنفس (`categorySlug`+`productName`) تُجمّع كمتغيرات لنفس المنتج |
+| `categorySlug` | نعم | slug صنف موجود فعليًا |
+| `brandSlug` | لا | slug علامة تجارية موجودة |
+| `price` | نعم | رقم موجب — يُحفظ بقائمة سعر `retail` |
+| `sellingUnit` | لا | افتراضي `PIECE` — أحد: PIECE, METER, ROLL, KILOGRAM, PACKAGE, PARCEL, SHEET |
+| `weight` | لا | رقم |
+| `attr_<key>` | حسب الصنف | أي عمود يبدأ بـ `attr_` يُقرأ كقيمة صفة، مثلاً `attr_color=red`. الصفات "المنشئة لمتغير" بالصنف إلزامية لكل صف. |
+
+### `POST /imports/products` — يتطلب صلاحية `imports.manage` (multipart/form-data, حقل الملف اسمه `file`)
+يرفع، يحلل، ويتحقق من كل صف **فورًا** (بدون اعتماد بعد). Response `201` = دفعة (`ImportBatch`) بكل صفوفها وحالة كل صف (`VALID` أو `ERROR` مع رسائل الخطأ بالضبط).
+
+أخطاء يتم كشفها لكل صف: صنف/علامة تجارية غير موجودة، سعر غير رقمي، قيمة صفة غير صالحة لنوعها، SKU مكرر (بالملف أو بقاعدة البيانات فعليًا)، تركيبة صفات مكررة لنفس المنتج بالملف، أو أكثر من صف لمنتج بسيط (صنف بدون صفات منشئة لمتغير).
+
+### `GET /imports` — يتطلب صلاحية `imports.manage`
+قائمة كل دفعات الاستيراد.
+
+### `GET /imports/:id` — يتطلب صلاحية `imports.manage`
+تفاصيل دفعة واحدة مع كل صفوفها وحالتها.
+
+### `POST /imports/:id/commit` — يتطلب صلاحية `imports.manage`
+يعتمد الدفعة: الصفوف `VALID` فقط تُنشئ منتجات/متغيرات/أسعار فعليًا ضمن transaction واحدة، وتصير حالتها `COMMITTED` مع `resolvedProductId`/`resolvedVariantId`. الصفوف الخاطئة تصير `SKIPPED`. `409` إذا الدفعة مو بحالة `PREVIEWED` (يعني اتعملها commit من قبل، أو لسا ما اتعمل لها preview).
+
+---
+
 ## Health (`/health`) — Public, للمراقبة فقط
 - `GET /health/live` → `{ "status": "ok" }`
 - `GET /health/ready` → حالة الاتصال بقاعدة البيانات وRedis.
@@ -261,7 +326,8 @@ Response: `{ "updated": 2 }`. كل التحديثات بـ transaction واحد�
 3. **حسابات تجريبية محليًا (seed):** `admin@printing-store.local` / `ChangeMe123!` (دور `super_admin`) — موجود بالتطوير فقط، غير موجود بالإنتاج.
 4. **التحقق من البريد/الهاتف عند التسجيل غير مُفعّل بعد** (المستخدم يصير `ACTIVE` مباشرة) — سيُضاف لاحقًا مع وحدة الإشعارات.
 5. **الصلاحيات (`permissions`)** ترجع مع `/auth/me` وداخل الـ access token نفسه — استخدمها لإخفاء/إظهار عناصر الواجهة، لكن لا تعتمد عليها للحماية (التحقق الحقيقي دائمًا بالسيرفر).
-6. **رفع الصور غير جاهز بعد** (وحدة `media`) — لا يوجد حاليًا حقل صورة فعلي بالمنتجات؛ سيُضاف قريبًا مع presigned upload لـ MinIO.
-7. **الاستيراد من ملفات Excel/CSV غير جاهز بعد** (وحدة `imports`).
+6. **رفع الصور جاهز** (وحدة `media`) — تدفق الرفع من 3 خطوات: `presign` → `PUT` مباشر للرابط الراجع (من الفرونت مباشرة لـ MinIO، بدون ما يمر عبر سيرفر الـ API) → `confirm`. لسا ما فيه ربط تلقائي بين صور المنتج وحقل معيّن بجدول المنتج نفسه — الصور مرتبطة بـ `entityType`/`entityId` بشكل منفصل، اجلبها عبر `GET /media?entityType=product&entityId=...`.
+7. **الاستيراد من ملفات CSV جاهز** (وحدة `imports`) — لكن خريطة الأعمدة **ثابتة** حاليًا (جدول الأعمدة بالأعلى)، لا يوجد بعد واجهة لخريطة أعمدة مخصصة يختارها المستخدم، فلازم ملف CSV يطابق الأسماء بالضبط.
 8. **صفحة فلترة منتج حسب صنف:** استخدم `GET /category-attributes?categoryId=X` لمعرفة أي صفات تُعرض كفلاتر (`isFilterable: true`) وأيها تُستخدم لبناء فورم إضافة منتج/متغير (`createsVariant: true` = تدخل بفورم المتغير، غير ذلك = تدخل بفورم بيانات المنتج).
 9. **صفة `COLOR_SELECT`/`SELECT`:** القيم المسموحة تجيك من `attribute.options[].value` — أرسل الـ `value` بالضبط (case-sensitive) مو الـ `label`.
+

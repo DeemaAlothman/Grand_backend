@@ -13,6 +13,7 @@ import mailConfig from './config/mail.config';
 import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { MailModule } from './infrastructure/mail/mail.module';
+import { StorageModule } from './infrastructure/storage/storage.module';
 import { buildLoggerOptions } from './infrastructure/observability/logger.config';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -25,6 +26,8 @@ import { AttributesModule } from './modules/attributes/attributes.module';
 import { BrandsModule } from './modules/brands/brands.module';
 import { ProductsModule } from './modules/products/products.module';
 import { PricingModule } from './modules/pricing/pricing.module';
+import { MediaModule } from './modules/media/media.module';
+import { ImportsModule } from './modules/imports/imports.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -57,6 +60,7 @@ import { AppService } from './app.service';
     JwtModule.register({ global: true }),
     DatabaseModule,
     MailModule,
+    StorageModule,
     AuditModule,
     HealthModule,
     UsersModule,
@@ -66,6 +70,8 @@ import { AppService } from './app.service';
     BrandsModule,
     ProductsModule,
     PricingModule,
+    MediaModule,
+    ImportsModule,
   ],
   controllers: [AppController],
   providers: [
