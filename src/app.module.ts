@@ -14,6 +14,7 @@ import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { MailModule } from './infrastructure/mail/mail.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
+import { QueueModule } from './infrastructure/queue/queue.module';
 import { buildLoggerOptions } from './infrastructure/observability/logger.config';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -28,6 +29,12 @@ import { ProductsModule } from './modules/products/products.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { MediaModule } from './modules/media/media.module';
 import { ImportsModule } from './modules/imports/imports.module';
+import { WarehousesModule } from './modules/warehouses/warehouses.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { CartModule } from './modules/cart/cart.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -61,6 +68,7 @@ import { AppService } from './app.service';
     DatabaseModule,
     MailModule,
     StorageModule,
+    QueueModule,
     AuditModule,
     HealthModule,
     UsersModule,
@@ -72,6 +80,12 @@ import { AppService } from './app.service';
     PricingModule,
     MediaModule,
     ImportsModule,
+    WarehousesModule,
+    InventoryModule,
+    CartModule,
+    OrdersModule,
+    PaymentsModule,
+    ShipmentsModule,
   ],
   controllers: [AppController],
   providers: [

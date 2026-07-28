@@ -313,6 +313,127 @@ Response `204`. يحذف الملف من التخزين والسجل من قاع
 
 ---
 
+## Warehouses (`/warehouses`) — يتطلب صلاحية `warehouses.manage`
+
+مستودع واحد مزروع افتراضيًا (`MAIN`) — النموذج يدعم عدة مستودعات لكن باقي الوحدات (السلة/الطلبات) تستخدم أول مستودع فعّال تلقائيًا حاليًا (لا يوجد اختيار مستودع بعد بجهة الفرونت).
+
+- `GET /warehouses`, `GET /warehouses/:id`
+- `POST /warehouses` — `{ "code": "MAIN2", "name": "فرع إربد", "isActive": true }`
+
+---
+
+## Inventory (`/inventory`)
+
+### `GET /inventory?variantId=uuid` — يتطلب صلاحية `inventory.read`
+أرصدة المخزون (`quantityOnHand`, `quantityReserved`) لكل مستودع. المتاح الفعلي = `quantityOnHand - quantityReserved`.
+
+### `GET /inventory/movements?variantId=uuid` — يتطلب صلاحية `inventory.read`
+سجل حركات المخزون (RECEIPT/ADJUSTMENT/RESERVE/RELEASE/DEDUCT/RETURN) — للتدقيق.
+
+### `POST /inventory/receive` — يتطلب صلاحية `inventory.adjust`
+```json
+{ "variantId": "uuid", "quantity": 50, "reason": "شحنة جديدة" }
+```
+يزيد `quantityOnHand`. `warehouseId` اختياري (يُستخدم المستودع الافتراضي إذا غاب).
+
+### `POST /inventory/adjustments` — يتطلب صلاحية `inventory.adjust`
+```json
+{ "variantId": "uuid", "quantityDelta": -3, "reason": "تسوية جرد" }
+```
+`reason` إجباري هون (عكس `receive`) لأنه تصحيح يدوي يحتاج تبرير. `quantityDelta` يقبل سالب. `409` إذا التسوية ستنزل الرصيد تحت الكمية المحجوزة بطلبات مفتوحة فعليًا.
+
+---
+
+## Cart (`/cart`) — يتطلب Access Token (سلة كل مستخدم مرتبطة بحسابه)
+
+### `GET /cart`
+```json
+{ "id": "uuid", "items": [ { "id": "uuid", "variantId": "uuid", "quantity": 2, "variant": { "...": "..." } } ], "total": 50 }
+```
+`total`: `null` إذا في عنصر بالسلة بدون سعر تجزئة محدد (يجب حذفه أو تحديد سعره قبل إتمام الطلب).
+
+### `POST /cart/items`
+```json
+{ "variantId": "uuid", "quantity": 2 }
+```
+إذا العنصر موجود بالسلة، الكمية **تُضاف** للكمية الحالية لا تستبدلها. يرجع السلة كاملة بعد التحديث. `400` إذا الكمية ليست عدد صحيح لمنتج وحدة بيعه غير كسرية (قطعة/عبوة/طرد/لوح)، أو أقل من الحد الأدنى للطلب.
+
+### `PATCH /cart/items/:itemId`
+```json
+{ "quantity": 5 }
+```
+يستبدل الكمية بالقيمة المرسلة بالضبط. `quantity: 0` يحذف العنصر.
+
+### `DELETE /cart/items/:itemId` — Response `204`
+### `DELETE /cart` — يفرّغ السلة بالكامل، Response `204`
+
+---
+
+## Orders (`/orders`)
+
+دورة الحالات: `DRAFT → PENDING_PAYMENT → PAID → CONFIRMED → PROCESSING → READY_TO_SHIP → SHIPPED → DELIVERED`, مع فروع استثنائية: `CANCELLED`, `PAYMENT_FAILED`, `RETURN_REQUESTED → RETURNED → REFUNDED`. أي انتقال غير مسموح يرجع `409` بوضوح.
+
+**قواعد المخزون المرتبطة بالحالة (مهم لفهم السلوك):**
+- عند إنشاء الطلب (`PENDING_PAYMENT`) يُحجز المخزون (`quantityReserved`) فورًا — يبقى محجوزًا خلال `PAID` أيضًا.
+- عند `CONFIRMED` يُخصم المخزون فعليًا من `quantityOnHand` (نهائي، لا رجعة اعتيادية).
+- إلغاء الطلب قبل `CONFIRMED` يحرر الحجز؛ إلغاؤه بعد `CONFIRMED` (أو إرجاعه) يعيد الكمية لـ`quantityOnHand`.
+- **مهلة الدفع:** أي طلب يبقى `PENDING_PAYMENT` لأكثر من 15 دقيقة (افتراضيًا) يُلغى تلقائيًا ويتحرر حجزه عبر job خلفي (BullMQ) — لا حاجة لأي إجراء من الفرونت، لكن يُستحسن تنبيه المستخدم إذا مرّ وقت طويل بدون دفع.
+
+### `POST /orders` — يتطلب Access Token
+```json
+{ "shippingAddress": { "city": "Amman", "street": "..." } }
+```
+- ينشئ الطلب من **سلة المستخدم الحالية** (لا يقبل قائمة عناصر مباشرة). `400` إذا السلة فارغة أو فيها عنصر بدون سعر.
+- **`409` "insufficient stock for SKU ..."** إذا المخزون المتاح أقل من المطلوب — هذا هو رد الحماية من البيع الوهمي (overselling)، مُختبر فعليًا تحت تزامن حقيقي.
+- **Header اختياري `Idempotency-Key`**: نفس المفتاح يرجّع نفس الطلب دومًا بدل إنشاء طلب مكرر (مفيد لو الفرونت أعاد إرسال الطلب بسبب انقطاع شبكة).
+- يُفرّغ السلة تلقائيًا عند النجاح فقط (لو فشل الطلب، السلة تبقى كما هي).
+
+### `GET /orders/my` — طلبات المستخدم الحالي فقط
+
+### `GET /orders/:id`
+العميل يشوف طلبه هو فقط (404 لو حاول يشوف طلب غيره — مش 403، لتجنب كشف وجود الطلب لغير صاحبه). أي حدا معه صلاحية `orders.read` يشوف أي طلب.
+
+### `GET /orders` — يتطلب صلاحية `orders.read` (لوحة الإدارة، كل الطلبات)
+
+### `PATCH /orders/:id/status` — يتطلب صلاحية `orders.updateStatus`
+```json
+{ "status": "CONFIRMED", "reason": "اختياري خصوصًا عند الإلغاء" }
+```
+
+---
+
+## Payments (مسارات تحت `/orders` و`/payments`)
+
+**مزود الدفع حاليًا `mock` فقط** — لا توجد بوابة دفع حقيقية متكاملة بعد (قرار مفتوح بالتوصيف). الدفع الوهمي ينجح دائمًا إلا إذا طُلب محاكاة فشل صراحة.
+
+### `POST /orders/:orderId/pay` — يتطلب Access Token (صاحب الطلب، أو أي حدا معه `orders.read`)
+```json
+{ "simulateFailure": false }
+```
+عند النجاح: ينشئ سجل دفع `SUCCEEDED` وينقل الطلب لـ`PAID` تلقائيًا. عند `simulateFailure: true`: سجل دفع `FAILED` والطلب يصير `PAYMENT_FAILED` (يمكن إعادة المحاولة لاحقًا بإرجاعه لـ`PENDING_PAYMENT` عبر `PATCH /orders/:id/status`). يدعم `Idempotency-Key` header أيضًا.
+
+### `POST /payments/:paymentId/refund` — يتطلب صلاحية `orders.refund`
+```json
+{ "amount": 25, "reason": "اختياري" }
+```
+يدعم استرجاع جزئي (أكثر من refund لنفس الدفعة طالما المجموع ما يتجاوز المبلغ الأصلي). يحدّث حالة الدفع لـ`REFUNDED` تلقائيًا عند اكتمال الاسترجاع الكامل.
+
+---
+
+## Shipments (مسارات تحت `/orders` و`/shipments`) — يتطلب صلاحية `orders.updateStatus`
+
+### `GET /orders/:orderId/shipments`
+### `POST /orders/:orderId/shipments`
+```json
+{ "carrier": "Aramex", "trackingNumber": "ARX123" }
+```
+يتطلب أن يكون الطلب بحالة `READY_TO_SHIP`؛ ينشئ الشحنة **وينقل الطلب تلقائيًا لـ`SHIPPED`** بنفس العملية.
+
+### `POST /shipments/:shipmentId/deliver`
+يعلّم الشحنة `DELIVERED` **وينقل الطلب تلقائيًا لـ`DELIVERED`** أيضًا.
+
+---
+
 ## Health (`/health`) — Public, للمراقبة فقط
 - `GET /health/live` → `{ "status": "ok" }`
 - `GET /health/ready` → حالة الاتصال بقاعدة البيانات وRedis.
@@ -330,4 +451,5 @@ Response `204`. يحذف الملف من التخزين والسجل من قاع
 7. **الاستيراد من ملفات CSV جاهز** (وحدة `imports`) — لكن خريطة الأعمدة **ثابتة** حاليًا (جدول الأعمدة بالأعلى)، لا يوجد بعد واجهة لخريطة أعمدة مخصصة يختارها المستخدم، فلازم ملف CSV يطابق الأسماء بالضبط.
 8. **صفحة فلترة منتج حسب صنف:** استخدم `GET /category-attributes?categoryId=X` لمعرفة أي صفات تُعرض كفلاتر (`isFilterable: true`) وأيها تُستخدم لبناء فورم إضافة منتج/متغير (`createsVariant: true` = تدخل بفورم المتغير، غير ذلك = تدخل بفورم بيانات المنتج).
 9. **صفة `COLOR_SELECT`/`SELECT`:** القيم المسموحة تجيك من `attribute.options[].value` — أرسل الـ `value` بالضبط (case-sensitive) مو الـ `label`.
-
+10. **السلة والطلبات:** إنشاء الطلب يعتمد فقط على سلة المستخدم بالسيرفر (لا ترسل قائمة عناصر يدويًا). استخدم `Idempotency-Key` header عند إنشاء الطلب وعند الدفع لتفادي التكرار بسبب ضعف الشبكة أو ضغط الزر مرتين.
+11. **إلغاء طلب من الفرونت:** استخدم `PATCH /orders/:id/status` بـ`{"status":"CANCELLED"}` فقط إذا الحالة تسمح بذلك (`PENDING_PAYMENT`/`PAID`/`CONFIRMED`/`PROCESSING`) — أي انتقال غير مسموح يرجع 409 برسالة واضحة تقدر تعرضها للمستخدم مباشرة. 

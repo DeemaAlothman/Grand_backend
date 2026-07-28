@@ -52,6 +52,14 @@ async function seedPriceLists() {
   });
 }
 
+async function seedWarehouse() {
+  await prisma.warehouse.upsert({
+    where: { code: 'MAIN' },
+    update: {},
+    create: { code: 'MAIN', name: 'Main Warehouse' },
+  });
+}
+
 async function seedDevSuperAdmin() {
   if (process.env.NODE_ENV === 'production') {
     return;
@@ -83,6 +91,7 @@ async function main() {
   await seedPermissions();
   await seedRoles();
   await seedPriceLists();
+  await seedWarehouse();
   await seedDevSuperAdmin();
 }
 
