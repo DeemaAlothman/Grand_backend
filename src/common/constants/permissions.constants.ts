@@ -25,6 +25,8 @@ export const PERMISSIONS = [
   'audit.read',
   'media.manage',
   'imports.manage',
+  'reports.view',
+  'promotions.manage',
 ] as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[number];
@@ -59,6 +61,7 @@ export const ROLE_DEFINITIONS: Record<
       'prices.update',
       'media.manage',
       'imports.manage',
+      'promotions.manage',
     ],
   },
   inventory_manager: {
@@ -70,6 +73,7 @@ export const ROLE_DEFINITIONS: Record<
       'warehouses.manage',
       'products.read',
       'categories.read',
+      'reports.view',
     ],
   },
   order_manager: {
@@ -81,6 +85,7 @@ export const ROLE_DEFINITIONS: Record<
       'orders.updateStatus',
       'orders.refund',
       'products.read',
+      'reports.view',
     ],
   },
   sales_agent: {

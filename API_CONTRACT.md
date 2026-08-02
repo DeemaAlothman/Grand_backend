@@ -178,15 +178,19 @@ Query params (كلها اختيارية):
 
 Response `200`:
 ```json
-{ "items": [ { "...": "...", "displayPrice": { "min": 20, "max": 25 } } ], "nextCursor": "uuid|null" }
+{ "items": [ { "...": "...", "displayPrice": { "min": 20, "max": 25 }, "inStock": true } ], "nextCursor": "uuid|null" }
 ```
 - `displayPrice`: محسوب من أسعار التجزئة لكل متغيرات المنتج وقت الطلب (`null` إذا ما في أسعار بعد). للمنتج البسيط `min === max`.
+- `inStock`: **`true`/`false` فقط، بدون أرقام فعلية** — `true` لو أي متغير من متغيرات المنتج عنده كمية متاحة (`onHand - reserved > 0`) بأي مستودع. نفس الحقل موجود على مستوى كل متغير داخل `variants[]`. الأرقام الفعلية (`quantityOnHand`/`quantityReserved`) ما بتنكشف هون أبدًا — هاي موجودة فقط بـ `/inventory` و`/reports/low-stock` للصلاحيات الإدارية.
 
 ### `GET /products/slug/:slug` — Public
-تفاصيل منتج واحد للمتجر (يرجع 404 إذا مو `PUBLISHED`)، يشمل كل المتغيرات وصفاتها وأسعارها.
+تفاصيل منتج واحد للمتجر (يرجع 404 إذا مو `PUBLISHED`)، يشمل كل المتغيرات وصفاتها وأسعارها وحقل `inStock`.
 
 ### `GET /products/:id` — يتطلب صلاحية `products.read`
 تفاصيل منتج بأي حالة (`DRAFT`/`PUBLISHED`/`ARCHIVED`) — للوحة الإدارة.
+
+### `GET /products/admin` — يتطلب صلاحية `products.read`
+زي `GET /products` بالضبط (نفس query params) لكن **بدون** تقييد `PUBLISHED` — ترجع كل الحالات، لأن منتج `DRAFT` أو `ARCHIVED` ما كان ظاهر بأي قائمة قبل هالـ endpoint (كنت لازم تعرف الـ id مسبقًا). أضف `status=DRAFT|PUBLISHED|ARCHIVED` لفلترة حالة معيّنة، أو اتركه فاضي لعرض الكل.
 
 ### `POST /products` — يتطلب صلاحية `products.create`
 ```json
@@ -233,6 +237,14 @@ Response `200`:
 ## Pricing
 
 قوائم الأسعار المزروعة افتراضيًا: `retail` (تجزئة), `wholesale` (جملة).
+
+**العملة:** عملة واحدة ثابتة `USD` لكل المبالغ بالنظام (حقل `currency` موجود بكل رد سعر لكنه دائمًا `"USD"` حاليًا — لا يوجد دعم متعدد العملات بعد). **الدقة العشرية:** رقمين عشريين لكل المبالغ (`Decimal(12,2)` بقاعدة البيانات).
+
+### `PATCH /customers/:customerId/price-list` — يتطلب صلاحية `prices.update`
+```json
+{ "priceListKey": "wholesale" }
+```
+يربط عميل معيّن بقائمة أسعار خاصة (مثلاً جملة) بدل التجزئة الافتراضية — تُطبّق تلقائيًا على سلته وطلباته القادمة. أرسل `priceListKey: null` لإرجاعه للتجزئة.
 
 ### `POST /variants/:variantId/prices` — يتطلب صلاحية `prices.update`
 ```json
@@ -319,16 +331,66 @@ Response `204`. يحذف الملف من التخزين والسجل من قاع
 
 - `GET /warehouses`, `GET /warehouses/:id`
 - `POST /warehouses` — `{ "code": "MAIN2", "name": "فرع إربد", "isActive": true }`
+- `PATCH /warehouses/:id` — `{ "name": "اختياري", "isActive": "اختياري" }`. **لا يوجد حذف فعلي للمستودعات** — تعطيل فقط (`isActive: false`)، لأن حذف مستودع فيه حركات مخزون فعلية خطير. `409` إذا حاولت تعطّل آخر مستودع فعّال بالنظام (لازم يبقى واحد فعّال على الأقل، وإلا الطلبات ما بتلاقي مستودع افتراضي).
 
 ---
 
 ## Inventory (`/inventory`)
 
 ### `GET /inventory?variantId=uuid` — يتطلب صلاحية `inventory.read`
-أرصدة المخزون (`quantityOnHand`, `quantityReserved`) لكل مستودع. المتاح الفعلي = `quantityOnHand - quantityReserved`.
+أرصدة المخزون (`quantityOnHand`, `quantityReserved`) لكل مستودع. المتاح الفعلي = `quantityOnHand - quantityReserved`. **هاد endpoint إداري فقط** (الزبون ما عنده هالصلاحية) — لعرض التوفر بالمتجر استخدم حقل `inStock` (true/false) الموجود مباشرة برد `/products` (شوف قسم Products).
 
 ### `GET /inventory/movements?variantId=uuid` — يتطلب صلاحية `inventory.read`
 سجل حركات المخزون (RECEIPT/ADJUSTMENT/RESERVE/RELEASE/DEDUCT/RETURN) — للتدقيق.
+
+### للمخزون المنخفض: `GET /reports/low-stock` (شوف قسم Reports تحت) — مو من هون.
+
+---
+
+## Reports (`/reports`) — يتطلب صلاحية `reports.view`
+
+### `GET /reports/sales?from=ISO8601&to=ISO8601`
+كلا الباراميترين اختياريان (بدونهم = كل الوقت). يحسب فقط الطلبات المدفوعة فعليًا أو بعدها (`PAID` وما بعدها بالسلسلة، مو `PENDING_PAYMENT`/`CANCELLED`/`PAYMENT_FAILED`).
+```json
+{ "totalRevenue": 1250.5, "orderCount": 42, "byDay": [ { "date": "2026-07-29T00:00:00.000Z", "revenue": 320, "orderCount": 8 } ] }
+```
+
+### `GET /reports/low-stock?threshold=5`
+`threshold` اختياري، افتراضي 5. يرجع كل صف مخزون (متغير × مستودع) يكون `available` (`onHand - reserved`) أقل من أو يساوي `threshold`، مرتبة تصاعديًا (الأقل توفرًا أولًا). هاد هو الـ endpoint المخصص لشاشة تنبيهات المخزون — لا داعي لاستدعاء `/inventory` لكل متغير يدويًا.
+
+### `GET /reports/stagnant-products?days=30`
+`days` اختياري، افتراضي 30. منتجات `PUBLISHED` ما إلها ولا طلب خلال آخر `days` يوم (مفيد لتحديد منتجات راكدة للتخفيضات أو المراجعة).
+
+---
+
+## Promotions / Coupons (`/coupons`)
+
+### `GET /coupons`, `GET /coupons/:id` — يتطلب صلاحية `promotions.manage`
+
+### `POST /coupons` — يتطلب صلاحية `promotions.manage`
+```json
+{
+  "code": "SAVE10",
+  "type": "PERCENTAGE | FIXED_AMOUNT",
+  "value": 10,
+  "maxUses": 100,
+  "minOrderTotal": 20,
+  "startsAt": "2026-08-01T00:00:00.000Z",
+  "expiresAt": "2026-09-01T00:00:00.000Z",
+  "isActive": true
+}
+```
+- `code`: أحرف كبيرة وأرقام و`_`/`-` فقط، فريد. `maxUses`, `minOrderTotal`, `startsAt`, `expiresAt`, `isActive` كلها اختيارية.
+- `PERCENTAGE`: `value` نسبة مئوية (مثلاً `10` = خصم 10%). `FIXED_AMOUNT`: `value` مبلغ ثابت بنفس عملة النظام.
+
+### `PATCH /coupons/:id` — يتطلب صلاحية `promotions.manage`
+نفس حقول الإنشاء، كلها اختيارية بالتحديث.
+
+### `POST /coupons/validate` — يتطلب Access Token (**ليس Public** — عمدًا، لمنع اكتشاف أكواد الكوبونات بالتجربة العشوائية)
+```json
+{ "code": "SAVE10", "subtotal": 50 }
+```
+يتحقق من الكوبون (فعّال، ضمن تاريخه، `minOrderTotal` محقق، ولسا ما وصل `maxUses`) بدون استهلاكه فعليًا — استخدمه لعرض الخصم المتوقع بصفحة السلة قبل إتمام الطلب. الاستهلاك الفعلي (`usedCount++`) يصير فقط عند إنشاء الطلب الحقيقي عبر `couponCode` بـ`POST /orders` (شوف قسم Orders)، وهو محمي من التزامن (لو وصلوا طلبين لنفس الكوبون بآخر استخدام متاح بنفس اللحظة، وحدة بس بتنجح).
 
 ### `POST /inventory/receive` — يتطلب صلاحية `inventory.adjust`
 ```json
@@ -381,24 +443,32 @@ Response `204`. يحذف الملف من التخزين والسجل من قاع
 
 ### `POST /orders` — يتطلب Access Token
 ```json
-{ "shippingAddress": { "city": "Amman", "street": "..." } }
+{ "shippingAddress": { "city": "Amman", "street": "..." }, "couponCode": "SAVE10 (اختياري)" }
 ```
 - ينشئ الطلب من **سلة المستخدم الحالية** (لا يقبل قائمة عناصر مباشرة). `400` إذا السلة فارغة أو فيها عنصر بدون سعر.
 - **`409` "insufficient stock for SKU ..."** إذا المخزون المتاح أقل من المطلوب — هذا هو رد الحماية من البيع الوهمي (overselling)، مُختبر فعليًا تحت تزامن حقيقي.
+- **`couponCode`:** اختياري. يُتحقق منه ويُستهلك ذريًا (atomic) أثناء الإنشاء — `409` واضح لو الكوبون وصل حده أو انتهى بنفس لحظة إنشاء طلبين متزامنين. الخصم المحسوب يظهر بحقل `discountAmount` بالرد.
+- **السعر المستخدم:** يعتمد قائمة أسعار الزبون (تجزئة افتراضيًا، أو الخاصة لو مُعيّنة له عبر `PATCH /customers/:customerId/price-list` — شوف قسم Pricing) وقت إنشاء الطلب بالضبط، ويُحفظ كـ snapshot (`unitPriceSnapshot`) لا يتغيّر حتى لو تغيّر السعر لاحقًا.
 - **Header اختياري `Idempotency-Key`**: نفس المفتاح يرجّع نفس الطلب دومًا بدل إنشاء طلب مكرر (مفيد لو الفرونت أعاد إرسال الطلب بسبب انقطاع شبكة).
 - يُفرّغ السلة تلقائيًا عند النجاح فقط (لو فشل الطلب، السلة تبقى كما هي).
 
 ### `GET /orders/my` — طلبات المستخدم الحالي فقط
 
 ### `GET /orders/:id`
-العميل يشوف طلبه هو فقط (404 لو حاول يشوف طلب غيره — مش 403، لتجنب كشف وجود الطلب لغير صاحبه). أي حدا معه صلاحية `orders.read` يشوف أي طلب.
+العميل يشوف طلبه هو فقط (404 لو حاول يشوف طلب غيره — مش 403، لتجنب كشف وجود الطلب لغير صاحبه). أي حدا معه صلاحية `orders.read` يشوف أي طلب. **الرد يتضمّن `items[]`, `payments[]`, `shipments[]`, `statusHistory[]` كاملين** — ما في حاجة لـ endpoint منفصل لجلب دفعات أو شحنات طلب معيّن، كلها موجودة هون مباشرة (مثلاً `paymentId` للاسترجاع تاخده من `payments[].id`، ورقم التتبع من `shipments[].trackingNumber`).
 
-### `GET /orders` — يتطلب صلاحية `orders.read` (لوحة الإدارة، كل الطلبات)
+### `GET /orders` — يتطلب صلاحية `orders.read` (لوحة الإدارة)
+Query params (كلها اختيارية): `status` (أي قيمة من enum الحالات)، `cursor`, `limit` (1-100، افتراضي 20) — نفس نمط `GET /products`.
+```json
+{ "items": [ { "...": "..." } ], "nextCursor": "uuid|null" }
+```
 
-### `PATCH /orders/:id/status` — يتطلب صلاحية `orders.updateStatus`
+### `PATCH /orders/:id/status` — يتطلب صلاحية `orders.updateStatus`، **أو** يكون صاحب الطلب ويطلب إلغاء فقط
 ```json
 { "status": "CONFIRMED", "reason": "اختياري خصوصًا عند الإلغاء" }
 ```
+- **صاحب الطلب** (بدون أي صلاحية خاصة) يقدر يستخدم هالمسار **فقط** لإلغاء طلبه (`status: "CANCELLED"`) — أي حالة هدف تانية بترجع `403`. أي حدا معه صلاحية `orders.updateStatus` يقدر يعمل أي انتقال مسموح على أي طلب.
+- طلب على طلب مو ملكك وما معك الصلاحية → `404` (نفس منطق إخفاء الوجود المستخدم بـ`GET /orders/:id`).
 
 ---
 
@@ -452,4 +522,8 @@ Response `204`. يحذف الملف من التخزين والسجل من قاع
 8. **صفحة فلترة منتج حسب صنف:** استخدم `GET /category-attributes?categoryId=X` لمعرفة أي صفات تُعرض كفلاتر (`isFilterable: true`) وأيها تُستخدم لبناء فورم إضافة منتج/متغير (`createsVariant: true` = تدخل بفورم المتغير، غير ذلك = تدخل بفورم بيانات المنتج).
 9. **صفة `COLOR_SELECT`/`SELECT`:** القيم المسموحة تجيك من `attribute.options[].value` — أرسل الـ `value` بالضبط (case-sensitive) مو الـ `label`.
 10. **السلة والطلبات:** إنشاء الطلب يعتمد فقط على سلة المستخدم بالسيرفر (لا ترسل قائمة عناصر يدويًا). استخدم `Idempotency-Key` header عند إنشاء الطلب وعند الدفع لتفادي التكرار بسبب ضعف الشبكة أو ضغط الزر مرتين.
-11. **إلغاء طلب من الفرونت:** استخدم `PATCH /orders/:id/status` بـ`{"status":"CANCELLED"}` فقط إذا الحالة تسمح بذلك (`PENDING_PAYMENT`/`PAID`/`CONFIRMED`/`PROCESSING`) — أي انتقال غير مسموح يرجع 409 برسالة واضحة تقدر تعرضها للمستخدم مباشرة. 
+11. **إلغاء طلب من الفرونت:** استخدم `PATCH /orders/:id/status` بـ`{"status":"CANCELLED"}` فقط إذا الحالة تسمح بذلك (`PENDING_PAYMENT`/`PAID`/`CONFIRMED`/`PROCESSING`) — أي انتقال غير مسموح يرجع 409 برسالة واضحة تقدر تعرضها للمستخدم مباشرة. **العميل صاحب الطلب يقدر يستخدم هالمسار مباشرة بدون أي صلاحية خاصة** (فقط للإلغاء، شوف قسم Orders لتفاصيل الفرق بين هاد وبين انتقالات الحالة الإدارية الثانية).
+12. **فك ربط صفة عن صنف (`DELETE /category-attributes/:categoryId/:attributeId`) عملية آمنة:** بتحذف بس الربط، **ما بتلمس** قيم الصفة الموجودة أصلاً على منتجات/متغيرات منشأة مسبقًا — تضل محفوظة بالداتابيس حتى لو الصنف عاد ما بيطلب هالصفة. لو بدك تنظيف فعلي لازم تعمله يدويًا من لوحة تعديل كل منتج.
+13. **رفع الصور من متصفح حقيقي بالإنتاج:** الرفع المباشر لـ MinIO/S3 (presigned PUT) يحتاج CORS مضبوط على الـ bucket يسمح لدومين الفرونت الفعلي — هاد مو معمول بعد بالتطوير المحلي (لأن curl/Postman ما بتطبّق CORS). لازم نضبطه قبل الإنتاج بمجرد ما يصير عندنا دومين الفرونت النهائي.
+14. **سكربت فحص تلقائي للعقد:** `npm run verify:contract` (أو `VERIFY_WRITES=1 npm run verify:contract` لفحص أعمق يشمل الكتابة) بيتصل بالسيرفر المحلي الشغّال ويتحقق آليًا من أشكال الردود الفعلية (حالة المنتج بعد الإنشاء، حقول الجرد، شمول الطلب لدفعاته وشحناته، إلخ) بدل ما تسأل حدا يدويًا — شغّله أول ما يكون عندك بيئة تطوير جاهزة.
+15. **إشعارات بريدية تلقائية:** الباك بيرسل إيميل (عبر Mailpit بالتطوير) تلقائيًا عند: إنشاء الطلب، استلام الدفع، الشحن، التسليم — بدون أي استدعاء من الفرونت، فقط تأكد إن حساب المستخدم عنده إيميل صحيح.

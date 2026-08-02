@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -34,8 +35,8 @@ export class OrdersController {
 
   @RequirePermissions('orders.read')
   @Get()
-  findAll() {
-    return this.ordersService.findAll();
+  findAll(@Query() query: Record<string, string>) {
+    return this.ordersService.findAll(query);
   }
 
   @Get(':id')
@@ -43,13 +44,18 @@ export class OrdersController {
     return this.ordersService.findOneForUser(id, user);
   }
 
-  @RequirePermissions('orders.updateStatus')
+  /**
+   * No blanket @RequirePermissions here: staff with `orders.updateStatus` may set any status,
+   * while an order's own customer may only cancel their own order (self-service cancellation).
+   * Everyone else is rejected inside the service.
+   */
   @Patch(':id/status')
-  updateStatus(
+  async updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateOrderStatusDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    await this.ordersService.authorizeStatusChange(id, dto.status, user);
     return this.ordersService.updateStatus(id, dto, user.id);
   }
 }

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AttributesService } from '../attributes/attributes.service';
@@ -18,6 +18,8 @@ import {
   violatesUniqueConstraint,
 } from '../../common/utils/prisma-error.util';
 
+const PRODUCT_STATUSES: ProductStatus[] = ['DRAFT', 'PUBLISHED', 'ARCHIVED'];
+
 const PRODUCT_INCLUDE = {
   category: true,
   brand: true,
@@ -26,13 +28,38 @@ const PRODUCT_INCLUDE = {
     include: {
       attributeValues: { include: { attribute: true } },
       prices: { include: { priceList: true } },
+      inventoryItems: {
+        select: { quantityOnHand: true, quantityReserved: true },
+      },
     },
   },
 } satisfies Prisma.ProductInclude;
 
+/**
+ * Only a true/false "in stock" flag is exposed here (never raw quantities) — availability
+ * before checkout is a storefront concern, exact counts belong to `/inventory` and
+ * `/reports/low-stock` which are permission-gated for staff.
+ */
+function variantInStock(variant: {
+  inventoryItems: {
+    quantityOnHand: Prisma.Decimal;
+    quantityReserved: Prisma.Decimal;
+  }[];
+}) {
+  return variant.inventoryItems.some(
+    (item) => Number(item.quantityOnHand) - Number(item.quantityReserved) > 0,
+  );
+}
+
 function withDisplayPrice<
   T extends {
-    variants: { prices: { priceListId: string; amount: Prisma.Decimal }[] }[];
+    variants: {
+      prices: { priceListId: string; amount: Prisma.Decimal }[];
+      inventoryItems: {
+        quantityOnHand: Prisma.Decimal;
+        quantityReserved: Prisma.Decimal;
+      }[];
+    }[];
   },
 >(product: T, retailPriceListId: string | undefined) {
   const retailAmounts = product.variants
@@ -45,7 +72,13 @@ function withDisplayPrice<
       ? null
       : { min: Math.min(...retailAmounts), max: Math.max(...retailAmounts) };
 
-  return { ...product, displayPrice };
+  const variants = product.variants.map((variant) => {
+    const { inventoryItems, ...rest } = variant;
+    return { ...rest, inStock: variantInStock({ inventoryItems }) };
+  });
+  const inStock = variants.some((variant) => variant.inStock);
+
+  return { ...product, variants, displayPrice, inStock };
 }
 
 @Injectable()
@@ -204,6 +237,44 @@ export class ProductsService {
         },
       };
     }
+
+    const products = await this.prisma.product.findMany({
+      where,
+      include: PRODUCT_INCLUDE,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    });
+
+    const hasMore = products.length > query.limit;
+    const page = products.slice(0, query.limit);
+
+    return {
+      items: page.map((product) => withDisplayPrice(product, retailList?.id)),
+      nextCursor: hasMore ? page[page.length - 1]?.id : null,
+    };
+  }
+
+  async findAllAdmin(query: ParsedProductQuery, status?: string) {
+    if (
+      status !== undefined &&
+      !PRODUCT_STATUSES.includes(status as ProductStatus)
+    ) {
+      throw new BadRequestException(
+        `status must be one of: ${PRODUCT_STATUSES.join(', ')}`,
+      );
+    }
+
+    const retailList = await this.prisma.priceList.findUnique({
+      where: { key: 'retail' },
+    });
+
+    const where: Prisma.ProductWhereInput = {
+      ...(status ? { status: status as ProductStatus } : {}),
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.brandId ? { brandId: query.brandId } : {}),
+      ...(query.q ? { name: { contains: query.q, mode: 'insensitive' } } : {}),
+    };
 
     const products = await this.prisma.product.findMany({
       where,

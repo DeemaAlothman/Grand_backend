@@ -39,11 +39,17 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/prisma.config.ts ./prisma.config.ts
+COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/package.json ./package.json
-RUN chown -R node:node /app
+# prisma/seed.ts imports straight from src/ (shares the permissions/roles source of truth with the app
+# instead of duplicating it) — so src/ has to ship even though production otherwise only runs dist/.
+COPY --from=build /app/src ./src
+COPY docker-entrypoint-prod.sh ./docker-entrypoint-prod.sh
+RUN chmod +x ./docker-entrypoint-prod.sh && chown -R node:node /app
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:3000/health/live',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/main.js"]
+CMD ["./docker-entrypoint-prod.sh"]

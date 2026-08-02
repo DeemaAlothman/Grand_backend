@@ -10,8 +10,10 @@ import mailConfig from './config/mail.config';
 import { validationSchema } from './config/validation.schema';
 import { DatabaseModule } from './infrastructure/database/database.module';
 import { QueueModule } from './infrastructure/queue/queue.module';
+import { MailModule } from './infrastructure/mail/mail.module';
 import { buildLoggerOptions } from './infrastructure/observability/logger.config';
 import { AuditModule } from './modules/audit/audit.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StockReleaseModule } from './jobs/stock-release/stock-release.module';
 
 @Module({
@@ -39,7 +41,9 @@ import { StockReleaseModule } from './jobs/stock-release/stock-release.module';
     }),
     DatabaseModule,
     QueueModule,
+    MailModule,
     AuditModule,
+    NotificationsModule,
     StockReleaseModule,
   ],
 })

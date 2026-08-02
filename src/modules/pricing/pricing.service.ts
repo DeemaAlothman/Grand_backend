@@ -51,6 +51,65 @@ export class PricingService {
     return price;
   }
 
+  /** The price list a given customer sees: their assigned override (e.g. wholesale), or "retail" by default. */
+  async resolvePriceListForUser(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { priceList: true },
+    });
+    if (user?.priceList) {
+      return user.priceList;
+    }
+    return this.prisma.priceList.findUniqueOrThrow({
+      where: { key: 'retail' },
+    });
+  }
+
+  /** Assigns (or clears, with `priceListKey: null`) a special price list for one customer. */
+  async assignCustomerPriceList(
+    customerId: string,
+    priceListKey: string | null,
+    actorId: string,
+  ) {
+    const customer = await this.prisma.user.findUnique({
+      where: { id: customerId },
+    });
+    if (!customer) {
+      throw new NotFoundException('customer not found');
+    }
+
+    let priceListId: string | null = null;
+    if (priceListKey) {
+      const priceList = await this.prisma.priceList.findUnique({
+        where: { key: priceListKey },
+      });
+      if (!priceList) {
+        throw new NotFoundException(`price list "${priceListKey}" not found`);
+      }
+      priceListId = priceList.id;
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: customerId },
+      data: { priceListId },
+      include: { priceList: true },
+    });
+
+    await this.auditService.log({
+      actorId,
+      action: 'user.price_list_assigned',
+      entityType: 'user',
+      entityId: customerId,
+      after: { priceListKey: updated.priceList?.key ?? null },
+    });
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      priceList: updated.priceList,
+    };
+  }
+
   async bulkUpdate(dto: BulkUpdatePricesDto, actorId: string) {
     if (dto.updates.length === 0) {
       throw new BadRequestException('updates cannot be empty');

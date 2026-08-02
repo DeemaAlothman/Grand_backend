@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { isFractionalSellingUnit } from '../inventory/inventory.constants';
+import { PricingService } from '../pricing/pricing.service';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 
@@ -30,13 +31,13 @@ function withTotal<
       variant: { prices: { priceListId: string; amount: unknown }[] };
     }[];
   },
->(cart: T, retailPriceListId: string | undefined) {
+>(cart: T, priceListId: string) {
   let total = 0;
   let hasUnpricedItem = false;
 
   for (const item of cart.items) {
     const price = item.variant.prices.find(
-      (p) => p.priceListId === retailPriceListId,
+      (p) => p.priceListId === priceListId,
     );
     if (!price) {
       hasUnpricedItem = true;
@@ -53,7 +54,10 @@ function withTotal<
 
 @Injectable()
 export class CartService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pricingService: PricingService,
+  ) {}
 
   private async validateQuantity(variantId: string, quantity: number) {
     const variant = await this.prisma.productVariant.findUnique({
@@ -97,10 +101,8 @@ export class CartService {
       where: { id: cartId },
       include: CART_INCLUDE,
     });
-    const retailList = await this.prisma.priceList.findUnique({
-      where: { key: 'retail' },
-    });
-    return withTotal(cart, retailList?.id);
+    const priceList = await this.pricingService.resolvePriceListForUser(userId);
+    return withTotal(cart, priceList.id);
   }
 
   async addItem(userId: string, dto: AddCartItemDto) {

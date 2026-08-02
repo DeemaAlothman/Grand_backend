@@ -41,6 +41,19 @@ export class ProductsController {
     return this.productsService.findBySlug(slug);
   }
 
+  /**
+   * Admin listing: unlike `GET /products` (storefront, PUBLISHED-only), this shows every status
+   * so a draft or archived product is actually reachable from a list instead of only by a known id.
+   */
+  @RequirePermissions('products.read')
+  @Get('admin')
+  findAllAdmin(@Query() query: Record<string, string>) {
+    return this.productsService.findAllAdmin(
+      parseProductQuery(query),
+      query.status,
+    );
+  }
+
   @RequirePermissions('products.read')
   @Get(':id')
   findOne(@Param('id') id: string) {

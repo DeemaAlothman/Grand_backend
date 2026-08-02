@@ -61,12 +61,19 @@ async function seedWarehouse() {
 }
 
 async function seedDevSuperAdmin() {
-  if (process.env.NODE_ENV === 'production') {
+  const explicitEmail = process.env.SEED_SUPERADMIN_EMAIL;
+  const explicitPassword = process.env.SEED_SUPERADMIN_PASSWORD;
+
+  // بالإنتاج: ما بننشئ حساب super_admin افتراضي معروف الإيميل/الباسورد إلا إذا صاحب السيرفر
+  // حدد قيم SEED_SUPERADMIN_EMAIL/SEED_SUPERADMIN_PASSWORD بنفسه صراحةً بملف .env (أول حساب فعلي
+  // بالإنتاج). بدون هيك، وبدون تحديد صريح، ما في حساب افتراضي يُنشأ إطلاقًا بالإنتاج (حماية من
+  // وجود admin@printing-store.local/ChangeMe123! معروف مسبقًا بقاعدة بيانات حقيقية).
+  if (process.env.NODE_ENV === 'production' && !(explicitEmail && explicitPassword)) {
     return;
   }
 
-  const email = process.env.SEED_SUPERADMIN_EMAIL ?? 'admin@printing-store.local';
-  const password = process.env.SEED_SUPERADMIN_PASSWORD ?? 'ChangeMe123!';
+  const email = explicitEmail ?? 'admin@printing-store.local';
+  const password = explicitPassword ?? 'ChangeMe123!';
 
   const superAdminRole = await prisma.role.findUniqueOrThrow({ where: { key: 'super_admin' } });
   const passwordHash = await argon2.hash(password);

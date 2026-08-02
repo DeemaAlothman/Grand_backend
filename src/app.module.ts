@@ -20,6 +20,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { HealthModule } from './modules/health/health.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CategoriesModule } from './modules/categories/categories.module';
@@ -35,6 +36,8 @@ import { CartModule } from './modules/cart/cart.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
+import { PromotionsModule } from './modules/promotions/promotions.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 
@@ -70,6 +73,7 @@ import { AppService } from './app.service';
     StorageModule,
     QueueModule,
     AuditModule,
+    NotificationsModule,
     HealthModule,
     UsersModule,
     AuthModule,
@@ -86,6 +90,8 @@ import { AppService } from './app.service';
     OrdersModule,
     PaymentsModule,
     ShipmentsModule,
+    PromotionsModule,
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [

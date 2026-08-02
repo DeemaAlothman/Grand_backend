@@ -24,4 +24,14 @@ export class MailService {
     });
     this.logger.log(`Password reset email queued for ${to}`);
   }
+
+  async send(to: string, subject: string, text: string) {
+    await this.transporter.sendMail({
+      from: 'no-reply@printing-store.local',
+      to,
+      subject,
+      text,
+    });
+    this.logger.log(`Email "${subject}" queued for ${to}`);
+  }
 }

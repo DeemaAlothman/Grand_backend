@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/types/jwt-payload.type';
 import { WarehousesService } from './warehouses.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
+import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 
 @Controller('warehouses')
 export class WarehousesController {
@@ -28,5 +29,15 @@ export class WarehousesController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.warehousesService.create(dto, user.id);
+  }
+
+  @RequirePermissions('warehouses.manage')
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateWarehouseDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.warehousesService.update(id, dto, user.id);
   }
 }

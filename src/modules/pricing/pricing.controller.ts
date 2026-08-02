@@ -1,10 +1,11 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Param, Patch, Post } from '@nestjs/common';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../common/types/jwt-payload.type';
 import { PricingService } from './pricing.service';
 import { SetPriceDto } from './dto/set-price.dto';
 import { BulkUpdatePricesDto } from './dto/bulk-update-prices.dto';
+import { AssignCustomerPriceListDto } from './dto/assign-customer-price-list.dto';
 
 @Controller()
 export class PricingController {
@@ -27,5 +28,19 @@ export class PricingController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.pricingService.bulkUpdate(dto, user.id);
+  }
+
+  @RequirePermissions('prices.update')
+  @Patch('customers/:customerId/price-list')
+  assignCustomerPriceList(
+    @Param('customerId') customerId: string,
+    @Body() dto: AssignCustomerPriceListDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.pricingService.assignCustomerPriceList(
+      customerId,
+      dto.priceListKey ?? null,
+      user.id,
+    );
   }
 }
