@@ -75,6 +75,36 @@ Response `200`:
 
 ---
 
+## Users (`/users`) — يتطلب صلاحية `users.manage` (super_admin فقط حاليًا)
+
+إدارة حسابات الموظفين (إضافة موظف بدور معيّن، تغيير دوره، تفعيل/تعطيل حسابه) — قبل هذا كان التعديل الوحيد ممكن مباشرة بقاعدة البيانات.
+
+### `GET /users`
+قائمة كل المستخدمين (موظفين وعملاء). **لا يرجع `passwordHash` إطلاقًا** بأي رد من هالمجموعة.
+
+### `GET /users/:id`
+
+### `POST /users`
+```json
+{ "email": "manager@store.com", "password": "MinimumLength10Chars!", "firstName": "اختياري", "lastName": "اختياري", "roleKey": "catalog_manager" }
+```
+- الحساب يُنشأ **`ACTIVE` فورًا** (بخلاف `POST /auth/register` العام). `roleKey` أي دور من القائمة أعلاه، بما فيها `customer` لو حابب (نادرًا ما تحتاجها هون، `/auth/register` أنسب للعملاء العاديين).
+- Errors: `409` إيميل مسجّل مسبقًا، `404` roleKey غير موجود.
+
+### `PATCH /users/:id/role`
+```json
+{ "roleKey": "inventory_manager" }
+```
+تغيير دور مستخدم موجود فورًا (ينعكس بأول access token جديد يطلبه — التوكنات القديمة الصادرة قبل التغيير تبقى بصلاحياتها القديمة لحد ما تنتهي، 15 دقيقة كحد أقصى).
+
+### `PATCH /users/:id/status`
+```json
+{ "status": "ACTIVE" }
+```
+`status` واحدة من: `ACTIVE`, `SUSPENDED`, `DISABLED` (`PENDING_VERIFICATION` غير مسموحة هون — حالة داخلية فقط). الحساب غير `ACTIVE` يُرفض تسجيل دخوله فورًا: `401 "Account is suspended"` أو `"Account is disabled"` حسب الحالة.
+
+---
+
 ## Categories (`/categories`)
 
 ### `GET /categories` — Public
