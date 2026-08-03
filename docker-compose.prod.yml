@@ -68,6 +68,10 @@ services:
       context: .
       target: production
     command: ['node', 'dist/worker.js']
+    # الصورة موروثة HEALTHCHECK يفحص رابط HTTP (مخصص للـapi) — الـworker ما بيشغّل سيرفر HTTP إطلاقًا،
+    # فهاد الفحص رح يفشل دايمًا ويطلع "unhealthy" وهمي رغم إن الـworker شغال تمام. نعطّله هون فقط.
+    healthcheck:
+      disable: true
     env_file: .env
     environment:
       NODE_ENV: production
