@@ -45,6 +45,9 @@ COPY --from=build /app/package.json ./package.json
 # prisma/seed.ts imports straight from src/ (shares the permissions/roles source of truth with the app
 # instead of duplicating it) — so src/ has to ship even though production otherwise only runs dist/.
 COPY --from=build /app/src ./src
+# One-off ts-node utility scripts (contract verification, demo data seeding) — not part of the
+# running app, but need to exist on disk to be run manually via `docker compose exec api ...`.
+COPY --from=build /app/scripts ./scripts
 COPY docker-entrypoint-prod.sh ./docker-entrypoint-prod.sh
 RUN chmod +x ./docker-entrypoint-prod.sh && chown -R node:node /app
 USER node
