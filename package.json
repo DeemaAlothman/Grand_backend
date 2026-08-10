@@ -21,7 +21,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "verify:contract": "ts-node -T scripts/verify-contract.ts",
-    "seed:demo": "ts-node -T scripts/seed-demo-data.ts"
+    "seed:demo": "ts-node -T scripts/seed-demo-data.ts",
+    "reset:demo": "ts-node --require ts-node/register/transpile-only prisma/reset-demo-catalog.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",
