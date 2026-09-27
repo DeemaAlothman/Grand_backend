@@ -22,6 +22,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "verify:contract": "ts-node -T scripts/verify-contract.ts",
     "seed:demo": "ts-node -T scripts/seed-demo-data.ts",
+    "seed:catalog": "ts-node -T scripts/seed-real-catalog.ts",
     "reset:demo": "ts-node --require ts-node/register/transpile-only prisma/reset-demo-catalog.ts"
   },
   "dependencies": {
